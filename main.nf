@@ -18,7 +18,7 @@ def helpMessage() {
 
     The typical command for running the pipeline is as follows:
 
-    nextflow run nf-core/hic --reads '*_R{1,2}.fastq.gz' -profile conda
+    nextflow run nf-core/hic --reads '*_R{1,2}.fastq.gz' -profile conda --genome [str] --digestion [str]
 
     Mandatory arguments:
       --reads [file]                            Path to input data (must be surrounded with quotes)
@@ -29,20 +29,27 @@ def helpMessage() {
       --genome [str]                            Name of iGenomes reference
       --bwt2_index [file]                       Path to Bowtie2 index
       --fasta [file]                            Path to Fasta reference
+
+    Digestion Hi-C
+      --digestion [str]                         Name of restriction enzyme used for digestion for pre-configuration.
+
+      --ligation_site [str]                     Ligation motifs to trim (comma separated). Default: 'AAGCTAGCTT'
+      --restriction_site [str]                  Cutting motif(s) of restriction enzyme(s) (comma separated). Default: 'A^AGCTT'
       --chromosome_size [file]                  Path to chromosome size file
       --restriction_fragments [file]            Path to restriction fragment file (bed)
       --save_reference [bool]                   Save reference genome to output folder. Default: False
-      --save_aligned_intermediates [bool]       Save intermediates alignment files. Default: False
+
+    DNase Hi-C
+      --dnase [bool]                            Run DNase Hi-C mode. All options related to restriction fragments are not considered. Default: False
+      --min_cis_dist [int]                      Minimum intra-chromosomal distance to consider. Default: None 
 
     Alignments
       --bwt2_opts_end2end [str]                 Options for bowtie2 end-to-end mappinf (first mapping step). See hic.config for default.
       --bwt2_opts_trimmed [str]                 Options for bowtie2 mapping after ligation site trimming. See hic.config for default.
       --min_mapq [int]                          Minimum mapping quality values to consider. Default: 10
-      --restriction_site [str]                  Cutting motif(s) of restriction enzyme(s) (comma separated). Default: 'A^AGCTT'
-      --ligation_site [str]                     Ligation motifs to trim (comma separated). Default: 'AAGCTAGCTT'
-      --rm_singleton [bool]                     Remove singleton reads. Default: true
-      --rm_multi [bool]                         Remove multi-mapped reads. Default: true
-      --rm_dup [bool]                           Remove duplicates. Default: true
+      --keep_multi [bool]                       Keep multi-mapped reads (--min_mapq is ignored). Default: false
+      --keep_dups [bool]                        Keep duplicates. Default: false
+      --save_aligned_intermediates [bool]       Save intermediates alignment files. Default: False
  
     Contacts calling
       --min_restriction_fragment_size [int]     Minimum size of restriction fragments to consider. Default: None
@@ -51,22 +58,26 @@ def helpMessage() {
       --max_insert_size [int]                   Maximum insert size of mapped reads to consider. Default: None
       --save_interaction_bam [bool]             Save BAM file with interaction tags (dangling-end, self-circle, etc.). Default: False
 
-      --dnase [bool]                            Run DNase Hi-C mode. All options related to restriction fragments are not considered. Default: False
-      --min_cis_dist [int]                      Minimum intra-chromosomal distance to consider. Default: None
-
     Contact maps
-      --bin_size [int]                          Bin size for contact maps (comma separated). Default: '1000000,500000'
+      --bin_size [str]                          Bin size for contact maps (comma separated). Default: '1000000,500000'
       --ice_max_iter [int]                      Maximum number of iteration for ICE normalization. Default: 100
       --ice_filter_low_count_perc [float]       Percentage of low counts columns/rows to filter before ICE normalization. Default: 0.02
       --ice_filter_high_count_perc [float]      Percentage of high counts columns/rows to filter before ICE normalization. Default: 0
       --ice_eps [float]                         Convergence criteria for ICE normalization. Default: 0.1
 
+    Downstream analysis
+      --res_dist_decay [str]                    Hi-C resolution(s) to run distance decay analysis (comma separated). Default: 250000
+      --res_compartments [str]                  Hi-C resolutions(s) to run comparments calling (comma separated). Default: 250000
+      --res_tads [str]                          Hi-C resolutions(s) to run TADs calling (comma separated). Default: 40000
 
     Workflow
       --skip_maps [bool]                        Skip generation of contact maps. Useful for capture-C. Default: False
       --skip_ice [bool]                         Skip ICE normalization. Default: False
       --skip_cool [bool]                        Skip generation of cool files. Default: False
       --skip_multiqc [bool]                     Skip MultiQC. Default: False
+      --skip_distdecay [bool]                   Skip counts vs distance quality control. Default: false
+      --skip_compartments [bool]                Skip chromosome compartments calling. Default: false
+      --skip_tads [bool]                        Skip TADs calling. Default: false
 
     Other
       --split_fastq [bool]                      Size of read chuncks to use to speed up the workflow. Default: None
@@ -96,6 +107,12 @@ if (params.help){
 if (params.genomes && params.genome && !params.genomes.containsKey(params.genome)) {
     exit 1, "The provided genome '${params.genome}' is not available in the iGenomes file. Currently the available genomes are ${params.genomes.keySet().join(", ")}"
 }
+
+if (params.digest && params.digestion && !params.digest.containsKey(params.digestion)) {
+   exit 1, "Digestion protocol not available by default. Currently, the available digestion options are ${params.digest.keySet().join(", ")}. Please set manuallu the digestion Hi-C paramters." 
+}
+params.restriction_site = params.digestion ? params.digest[ params.digestion ].restriction_site ?: false : false
+params.ligation_site = params.digestion ? params.digest[ params.digestion ].ligation_site ?: false : false
 
 // Check Digestion or DNase Hi-C mode
 if (!params.dnase && !params.ligation_site) {
@@ -221,7 +238,49 @@ else {
 }
 
 // Resolutions for contact maps
-map_res = Channel.from( params.bin_size.tokenize(',') )
+if (params.res_compartments){
+  Channel.from( "${params.res_compartments}" )
+    .splitCsv()
+    .flatten()
+    .into {comp_res; comp_bin}
+}else{
+  comp_res=Channel.create()
+  comp_bin=Channel.create()
+  if (!params.skip_compartments){
+    log.warn "[nf-core/hic] Hi-C resolution for compartments calling not specified. See --res_compartments"
+  }
+}
+
+if (params.res_tads){
+  Channel.from( "${params.res_tads}" )
+    .splitCsv()
+    .flatten()
+    .into {tads_res; tads_bin }
+}else{
+  tads_res=Channel.create()
+  tads_bin=Channel.create()
+  if (!params.skip_tads){
+    log.warn "[nf-core/hic] Hi-C resolution for TADs calling not specified. See --res_tads" 
+  }
+}
+
+if (params.res_dist_decay){
+  Channel.from( "${params.res_dist_decay}" )
+    .splitCsv()
+    .flatten()
+    .into {ddecay_res; ddecay_bin }
+}else{
+  ddecay_res = Channel.create()
+  ddecay_bin = Channel.create()
+  if (!params.skip_distdecay){
+    log.warn "[nf-core/hic] Hi-C resolution for distance decay not specified. See --res_dist_decay" 
+  }
+}
+
+map_res = Channel.from( params.bin_size ).splitCsv().flatten()
+map_res.concat(comp_bin, tads_bin, ddecay_bin)
+  .unique()
+  .set { map_res }
 
 // Stage config files
 ch_multiqc_config = Channel.fromPath(params.multiqc_config)
@@ -239,17 +298,28 @@ summary['Run Name']         = custom_runName ?: workflow.runName
 summary['Reads']            = params.reads
 summary['splitFastq']       = params.split_fastq
 summary['Fasta Ref']        = params.fasta
-summary['Restriction Motif']= params.restriction_site
-summary['Ligation Motif']   = params.ligation_site
-summary['DNase Mode']       = params.dnase
-summary['Remove Dup']       = params.rm_dup
+if (params.restriction_site){
+   summary['Digestion']        = params.digestion
+   summary['Restriction Motif']= params.restriction_site
+   summary['Ligation Motif']   = params.ligation_site
+   summary['Min Fragment Size']= ("$params.min_restriction_fragment_size".isInteger() ? params.min_restriction_fragment_size : 'None')
+   summary['Max Fragment Size']= ("$params.max_restriction_fragment_size".isInteger() ? params.max_restriction_fragment_size : 'None')
+   summary['Min Insert Size']  = ("$params.min_insert_size".isInteger() ? params.min_insert_size : 'None')
+   summary['Max Insert Size']  = ("$params.max_insert_size".isInteger() ? params.max_insert_size : 'None')
+}else{
+   summary['DNase Mode']       = params.dnase
+   summary['Min CIS dist']     = ("$params.min_cis_dist".isInteger() ? params.min_cis_dist : 'None')
+}
 summary['Min MAPQ']         = params.min_mapq
-summary['Min Fragment Size']= params.min_restriction_fragment_size
-summary['Max Fragment Size']= params.max_restriction_fragment_size
-summary['Min Insert Size']  = params.min_insert_size
-summary['Max Insert Size']  = params.max_insert_size
-summary['Min CIS dist']     = params.min_cis_dist
+summary['Keep Dup']         = params.keep_dups
+summary['Keep Multi']       = params.keep_multi
 summary['Maps resolution']  = params.bin_size
+if (!params.skip_compartments)
+   summary['Comparments call'] = (params.res_compartments ?: 'None')
+if (!params.skip_tads)
+   summary['TADs call']        = (params.res_tads ?: 'None')
+if (!params.skip_distdecay)
+   summary['Distance Decay']   = (params.res_dist_decay ?: 'None')
 summary['Max Memory']       = params.max_memory
 summary['Max CPUs']         = params.max_cpus
 summary['Max Time']         = params.max_time
@@ -416,11 +486,11 @@ if(!params.restriction_fragments && params.fasta && !params.dnase){
  }
 
 /****************************************************
- * MAIN WORKFLOW
+ * MAIN WORKFLOW TO GET CONTACT MAPS
  */
 
 /*
- * STEP 1 - Two-steps Reads Mapping
+ * Two-steps Reads Mapping
 */
 
 process bowtie2_end_to_end {
@@ -605,9 +675,11 @@ process combine_mapped_files{
    oname = sample.toString() - ~/(\.[0-9]+)$/
 
    def opts = "-t"
-   opts = params.rm_singleton ? "${opts}" : "--single ${opts}"
-   opts = params.rm_multi ? "${opts}" : "--multi ${opts}"
-   if ("$params.min_mapq".isInteger()) opts="${opts} -q ${params.min_mapq}"
+   if (params.keep_multi) {
+     opts="${opts} --multi"
+   }else if (params.min_mapq){
+     opts="${opts} -q ${params.min_mapq}"
+   }
    """
    mergeSAM.py -f ${r1_bam} -r ${r2_bam} -o ${sample}_bwt2pairs.bam ${opts}
    """
@@ -615,7 +687,7 @@ process combine_mapped_files{
 
 
 /*
- * STEP2 - DETECT VALID PAIRS
+ * Valid Pair detections
 */
 
 if (!params.dnase){
@@ -689,10 +761,10 @@ else{
 
 
 /*
- * STEP3 - BUILD MATRIX
+ * Build contact maps
 */
 
-process remove_duplicates {
+process merge_validpairs {
    tag "$sample"
    label 'process_highmem'
    publishDir "${params.outdir}/hic_results/data", mode: 'copy',
@@ -707,7 +779,7 @@ process remove_duplicates {
    file("stats/") into all_mergestat
 
    script:
-   if ( params.rm_dup ){
+   if ( ! params.keep_dups ){
    """
    mkdir -p stats/${sample}
 
@@ -774,9 +846,8 @@ process build_contact_maps{
    file chrsize from chromosome_size.collect()
 
    output:
-   file("*.matrix") into raw_maps
-   file "*.bed"
-
+   set val(sample), val(mres), file("*.matrix"), file("*.bed") into raw_maps
+ 
    script:
    """
    build_matrix --matrix-format upper  --binsize ${mres} --chrsizes ${chrsize} --ifile ${vpairs} --oprefix ${sample}_${mres}
@@ -784,10 +855,10 @@ process build_contact_maps{
 }
 
 /*
- * STEP 4 - NORMALIZE MATRIX
+ * Normalize contact maps
 */
 
-process run_ice{
+process ice{
    tag "$rmaps"
    label 'process_highmem'
    publishDir "${params.outdir}/hic_results/matrix/iced", mode: 'copy'
@@ -796,11 +867,11 @@ process run_ice{
    !params.skip_maps && !params.skip_ice
 
    input:
-   file(rmaps) from raw_maps
-   file "*.biases"
+   set val(sample), val(res), file(rmaps), file(bed) from raw_maps
 
    output:
-   file("*iced.matrix") into iced_maps
+   set val(sample), val(res), file("*iced.matrix"), file(bed) into iced_maps, iced_maps_comp
+   file ("*.biases") into iced_bias
 
    script:
    prefix = rmaps.toString() - ~/(\.matrix)?$/
@@ -812,11 +883,14 @@ process run_ice{
    """
 }
 
-
-/*
- * STEP 5 - COOLER FILE
+/****************************************************
+ * FORMAT CONVERTION
  */
-process generate_cool{
+  
+/*
+ * Create cool file
+ */
+process convert_to_mcool {
    tag "$sample"
    label 'process_medium'
    publishDir "${params.outdir}/export/cool", mode: 'copy'
@@ -829,7 +903,7 @@ process generate_cool{
    file chrsize from chromosome_size_cool.collect()
 
    output:
-   file("*mcool") into cool_maps
+   file("*cool") into cool_maps
 
    script:
    """
@@ -837,9 +911,135 @@ process generate_cool{
    """
 }
 
+/*
+ * Create h5 file
+ */
+
+process convert_to_h5 {
+  tag "$sample"
+  label 'process_medium'
+  publishDir "${params.outdir}/export/h5", mode: 'copy'
+
+  input:
+  set val(sample), val(res), file(maps), file(bed) from iced_maps
+
+  output:
+  set val(sample), val(res), file("*.h5") into h5maps_ddecay, h5maps_ccomp, h5maps_tads
+
+  script:
+  prefix = maps.toString() - ~/(\.matrix)?$/ 
+  """
+  hicConvertFormat --matrices ${maps} \
+  		   --outFileName ${prefix}.h5 \
+		   --resolution ${res} \
+		   --inputFormat hicpro \
+		   --outputFormat h5 \
+		   -bf ${bed}
+  """
+}
+
+
+/****************************************************
+ * DOWNSTREAM ANALYSIS
+ */
 
 /*
- * STEP 6 - MultiQC
+ * Counts vs distance QC
+ */
+
+chddecay = h5maps_ddecay.combine(ddecay_res).filter{ it[1] == it[4] }.dump(tag: "ddecay") 
+
+process dist_decay {
+  tag "$sample"
+  label 'process_medium'
+  publishDir "${params.outdir}/hic_results/dist", mode: 'copy'
+
+  when:
+  !params.skip_decay
+
+  input:
+  set val(sample), val(res), file(h5mat) from chddecay
+  
+  output:
+  file("*_distcount.txt")
+  file("*.png")
+
+
+  script:
+  prefix = h5mat.toString() - ~/(\.h5)?$/
+  """
+  hicPlotDistVsCounts --matrices ${h5mat} \
+                      --plotFile ${prefix}_distcount.png \
+  		      --outFileData ${prefix}_distcount.txt
+  """
+}
+
+/*
+ * Compartment calling
+ */
+
+chcomp = iced_maps_comp.combine(comp_res).filter{ it[1] == it[4] }.dump(tag: "comp")
+
+process compartment_calling {
+  tag "$sample - $res"
+  label 'process_medium'
+  publishDir "${params.outdir}/compartments", mode: 'copy'
+
+  when:
+  !params.skip_compartments
+
+  input:
+  set val(sample), val(res), file(mat), file(bed), val(r) from chcomp
+
+  output:
+  file("*.bedgraph") optional true into out_compartments
+
+  script:
+  """
+  call_compartments.r --matrix ${mat} --bed ${bed}
+  """
+}
+
+
+
+/*
+ * TADs calling
+ */
+
+chtads = h5maps_tads.combine(tads_res).filter{ it[1] == it[3] }.dump(tag: "tads")
+
+process tads_calling {
+  tag "$sample - $res"
+  label 'process_medium'
+  publishDir "${params.outdir}/tads", mode: 'copy'
+
+  when:
+  !params.skip_tads
+
+  input:
+  set val(sample), val(res), file(h5mat), val(r) from chtads
+
+  output:
+  file("*.{bed,bedgraph,gff}") into out_tads
+
+  script:
+  """
+  hicFindTADs --matrix ${h5mat} \
+  	      --outPrefix tad \
+	      --correctForMultipleTesting fdr \
+	      --numberOfProcessors ${task.cpus}
+  """
+}
+
+
+
+/****************************************************
+ * MultiQC REPORT
+ */
+   
+
+/*
+ * MultiQC
  */
 process multiqc {
    label 'process_low'
@@ -867,7 +1067,7 @@ process multiqc {
 }
 
 /*
- * STEP 7 - Output Description HTML
+ * Output Description HTML
  */
 process output_documentation {
    publishDir "${params.outdir}/pipeline_info", mode: 'copy'
