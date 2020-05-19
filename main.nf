@@ -1003,7 +1003,7 @@ process convert_to_h5 {
  * Counts vs distance QC
  */
 
-chddecay = h5maps_ddecay.combine(ddecay_res).filter{ it[1] == it[4] }.dump(tag: "ddecay") 
+chddecay = h5maps_ddecay.combine(ddecay_res).filter{ it[1] == it[3] }.dump(tag: "ddecay") 
 
 process dist_decay {
   tag "$sample"
@@ -1014,7 +1014,7 @@ process dist_decay {
   !params.skip_dist_decay
 
   input:
-  set val(sample), val(res), file(h5mat) from chddecay
+  set val(sample), val(res), file(h5mat), val(r) from chddecay
   
   output:
   file("*_distcount.txt")
@@ -1069,7 +1069,7 @@ process tads_hicexplorer {
   publishDir "${params.outdir}/tads", mode: 'copy'
 
   when:
-  !params.skip_tads && params.tads_caller ==~ 'hicexplorer'
+  !params.skip_tads && params.tads_caller =~ 'hicexplorer'
 
   input:
   set val(sample), val(res), file(h5mat), val(r) from chtads
@@ -1088,23 +1088,29 @@ process tads_hicexplorer {
 
 chIS = cool_maps.combine(tads_res_insulation).filter{ it[1] == it[3] }.dump(tag : "ins")
 
+//Channel
+//   .from(params.tads_caller)
+//   .filter( {it.String() == "insulation"} )
+   
+   
+
 process tads_insulation {
   tag "$sample - $res"
   label 'process_medium'
   publishDir "${params.outdir}/tads", mode: 'copy'
 
   when:
-  !params.skip_tads && params.tads_caller ==~ 'insulation'
+  !params.skip_tads && params.tads_caller =~ 'insulation'
 
   input:
   set val(sample), val(res), file(cool), val(r) from chIS
 
   output:
-  file("*.{bed,bedgraph,gff}") into insulation_tads
+  file("*tsv") into insulation_tads
 
   script:
   """
-  cooltools diamond-insulation --help
+  cooltools diamond-insulation --window-pixels ${cool} 15 25 50 > ${sample}_insulation.tsv
   """
 }
 
