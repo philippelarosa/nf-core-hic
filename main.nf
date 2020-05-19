@@ -1131,7 +1131,8 @@ process multiqc {
 
    input:
    file multiqc_config from ch_multiqc_config
-   file ('input_*/*') from all_mstats.concat(all_mergestat).collect().ifempty([])
+   file (mqc_custom_config) from ch_multiqc_custom_config.collect().ifEmpty([])
+   file ('input_*/*') from all_mstats.concat(all_mergestat).collect().ifEmpty([])
    file ('software_versions/*') from software_versions_yaml
    file workflow_summary from create_workflow_summary(summary)
 
