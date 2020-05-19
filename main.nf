@@ -286,6 +286,7 @@ map_res.concat(comp_bin, tads_bin, ddecay_bin)
 ch_multiqc_config = Channel.fromPath(params.multiqc_config)
 ch_output_docs = Channel.fromPath("$baseDir/docs/output.md")
 
+
 /**********************************************************
  * SET UP LOGS
  */
@@ -420,7 +421,7 @@ ${summary.collect { k,v -> "            <dt>$k</dt><dd><samp>${v ?: '<span style
  * PRE-PROCESSING
  */
 
-if(!params.bwt2_index && params.fasta){
+if(!params.bwt2_index && params.fasta && !params.bams){
     process makeBowtie2Index {
         tag "$bwt2_base"
         label 'process_highmem'
@@ -690,6 +691,15 @@ process combine_mapped_files{
  * Valid Pair detections
 */
 
+if (params.bams){
+   Channel
+      .fromFilePairs( params.bams, size: 1 )
+      .set{ chBams }
+}else{
+   chBams = paired_bam
+}
+
+
 if (!params.dnase){
    process get_valid_interaction{
       tag "$sample"
@@ -698,7 +708,7 @@ if (!params.dnase){
    	      saveAs: {filename -> filename.indexOf("*stat") > 0 ? "stats/$filename" : "$filename"}
 
       input:
-      set val(sample), file(pe_bam) from paired_bam
+      set val(sample), file(pe_bam) from chBams
       file frag_file from res_frag_file.collect()
 
       output:
