@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### `Added`
 
+* New parameter `--valid_pairs` to start the pipeline after the valid pairs detection
+* New parameter `--bams` to start the pipeline after the mapping steps
 * New TADs calling process (`--res_tads` and `--skip_tads`)
 * New compartments calling process (`--res_compartments` and `--skip_compartments`)
 * New distance decay process (`--res_dist_decay` and `--skip_dist_decay`)

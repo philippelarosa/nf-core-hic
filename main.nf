@@ -22,17 +22,20 @@ def helpMessage() {
 
     Mandatory arguments:
       --reads [file]                            Path to input data (must be surrounded with quotes)
-      -profile [str]                            Configuration profile to use. Can use multiple (comma separated)
-                                                Available: conda, docker, singularity, awsbatch, test and more.
-
-    References                                  If not specified in the configuration file or you wish to overwrite any of the references.
       --genome [str]                            Name of iGenomes reference
+      --digestion [str]                         Digestion Hi-C. Name of restriction enzyme used for digestion pre-configuration
+      -profile [str]                            Configuration profile to use. Can use multiple (comma separated)
+                                                Available: conda, docker, singularity, awsbatch, test and more
+
+    Input data:                                 If you want to start the pipeline from processed data
+      --bams [file]                             Path to bowtie2 aligned paired-end BAM files
+      --valid_pairs [file]                      Path to list of valid pairs in text format
+
+    References                                  If not specified in the configuration file or you wish to overwrite any of the references
       --bwt2_index [file]                       Path to Bowtie2 index
       --fasta [file]                            Path to Fasta reference
 
-    Digestion Hi-C
-      --digestion [str]                         Name of restriction enzyme used for digestion for pre-configuration.
-
+    Digestion Hi-C                              If not specified in the configuration file or you wish to set up specific digestion protocol
       --ligation_site [str]                     Ligation motifs to trim (comma separated). Default: 'AAGCTAGCTT'
       --restriction_site [str]                  Cutting motif(s) of restriction enzyme(s) (comma separated). Default: 'A^AGCTT'
       --chromosome_size [file]                  Path to chromosome size file
@@ -51,7 +54,7 @@ def helpMessage() {
       --keep_dups [bool]                        Keep duplicates. Default: false
       --save_aligned_intermediates [bool]       Save intermediates alignment files. Default: False
  
-    Contacts calling
+    Valid Pairs Detection
       --min_restriction_fragment_size [int]     Minimum size of restriction fragments to consider. Default: None
       --max_restriction_fragment_size [int]     Maximum size of restriction fragments to consider. Default: None
       --min_insert_size [int]                   Minimum insert size of mapped reads to consider. Default: None
@@ -68,6 +71,7 @@ def helpMessage() {
     Downstream analysis
       --res_dist_decay [str]                    Hi-C resolution(s) to run distance decay analysis (comma separated). Default: 250000
       --res_compartments [str]                  Hi-C resolutions(s) to run comparments calling (comma separated). Default: 250000
+      --tads_caller [str]                       Specifies the method(s) (comma separated) to use in order to call TADs. (available are: 'hicexplorer', 'insulation')
       --res_tads [str]                          Hi-C resolutions(s) to run TADs calling (comma separated). Default: 40000
 
     Workflow
@@ -255,7 +259,7 @@ if (params.res_tads){
   Channel.from( "${params.res_tads}" )
     .splitCsv()
     .flatten()
-    .into {tads_res; tads_bin }
+    .into {tads_res_hicexplorer; tads_res_insulation; tads_bin }
 }else{
   tads_res=Channel.create()
   tads_bin=Channel.create()
@@ -286,6 +290,19 @@ map_res.concat(comp_bin, tads_bin, ddecay_bin)
 ch_multiqc_config = Channel.fromPath(params.multiqc_config)
 ch_output_docs = Channel.fromPath("$baseDir/docs/output.md")
 
+
+/*********************************************************
+ * SET UP EMPTY CHANNEL FOR STEPWISE USAGE
+ */
+
+if (params.bams || params.valid_pairs){
+   bwt2_index_end2end = Channel.create()
+   bwt2_index_trim = Channel.create()
+}
+
+if (params.valid_pairs){
+  res_frag_file = Channel.create()
+}
 
 /**********************************************************
  * SET UP LOGS
@@ -421,7 +438,7 @@ ${summary.collect { k,v -> "            <dt>$k</dt><dd><samp>${v ?: '<span style
  * PRE-PROCESSING
  */
 
-if(!params.bwt2_index && params.fasta && !params.bams){
+if(!params.bwt2_index && params.fasta && !params.bams && !params.valid_pairs){
     process makeBowtie2Index {
         tag "$bwt2_base"
         label 'process_highmem'
@@ -466,7 +483,7 @@ if(!params.chromosome_size && params.fasta){
       }
  }
 
-if(!params.restriction_fragments && params.fasta && !params.dnase){
+if(!params.restriction_fragments && params.fasta && !params.dnase && !params.valid_pairs){
     process getRestrictionFragments {
         tag "$fasta ${params.restriction_site}"
 	label 'process_low'
@@ -492,7 +509,7 @@ if(!params.restriction_fragments && params.fasta && !params.dnase){
 
 /*
  * Two-steps Reads Mapping
-*/
+ */
 
 process bowtie2_end_to_end {
    tag "$prefix"
@@ -689,14 +706,14 @@ process combine_mapped_files{
 
 /*
  * Valid Pair detections
-*/
+ */
 
 if (params.bams){
    Channel
       .fromFilePairs( params.bams, size: 1 )
-      .set{ chBams }
+      .set{ ch_bams }
 }else{
-   chBams = paired_bam
+   ch_bams = paired_bam
 }
 
 
@@ -708,7 +725,7 @@ if (!params.dnase){
    	      saveAs: {filename -> filename.indexOf("*stat") > 0 ? "stats/$filename" : "$filename"}
 
       input:
-      set val(sample), file(pe_bam) from chBams
+      set val(sample), file(pe_bam) from ch_bams
       file frag_file from res_frag_file.collect()
 
       output:
@@ -835,10 +852,19 @@ process merge_sample {
   """
 }
 
-
 /**************************************
  * Output matrix files
  */
+
+if (params.valid_pairs){
+   Channel
+     .fromFilePairs( params.valid_pairs, size: 1 )
+     .into{ ch_vpairs; ch_vpairs_4cool }       
+}else{
+   ch_vpairs = all_valid_pairs
+   ch_vpairs_4cool = all_valid_pairs
+}
+
 
 process build_contact_maps{
    tag "$sample - $mres"
@@ -849,7 +875,7 @@ process build_contact_maps{
    !params.skip_maps
 
    input:
-   set val(sample), file(vpairs), val(mres) from all_valid_pairs.combine(map_res)
+   set val(sample), file(vpairs), val(mres) from ch_vpairs.combine(map_res)
    file chrsize from chromosome_size.collect()
 
    output:
@@ -863,7 +889,7 @@ process build_contact_maps{
 
 /*
  * Normalize contact maps
-*/
+ */
 
 process build_iced_maps{
    tag "$rmaps"
@@ -903,7 +929,7 @@ process convert_to_mcool {
    !params.skip_cool
 
    input:
-   set val(sample), file(vpairs) from all_valid_pairs_4cool
+   set val(sample), file(vpairs) from ch_vpairs_4cool
    file chrsize from chrsize_mcool.collect()
 
    output:
@@ -936,7 +962,7 @@ process convert_to_cool {
    file chrsize from chrsize_cool.collect()
 
    output:
-   set val(res), file("*cool") into cool_maps
+   set val(sample), val(res), file("*cool") into cool_maps
 
    script:
    """
@@ -1040,21 +1066,21 @@ process compartment_calling {
  * TADs calling
  */
 
-chtads = h5maps_tads.combine(tads_res).filter{ it[1] == it[3] }.dump(tag: "tads")
+chtads = h5maps_tads.combine(tads_res_hicexplorer).filter{ it[1] == it[3] }.dump(tag: "hicexp")
 
-process tads_calling {
+process tads_hicexplorer {
   tag "$sample - $res"
   label 'process_medium'
   publishDir "${params.outdir}/tads", mode: 'copy'
 
   when:
-  !params.skip_tads
+  !params.skip_tads && params.tads_caller ==~ 'hicexplorer'
 
   input:
   set val(sample), val(res), file(h5mat), val(r) from chtads
 
   output:
-  file("*.{bed,bedgraph,gff}") into out_tads
+  file("*.{bed,bedgraph,gff}") into hicexplorer_tads
 
   script:
   """
@@ -1065,6 +1091,27 @@ process tads_calling {
   """
 }
 
+chIS = cool_maps.combine(tads_res_insulation).filter{ it[1] == it[3] }.dump(tag : "ins")
+
+process tads_insulation {
+  tag "$sample - $res"
+  label 'process_medium'
+  publishDir "${params.outdir}/tads", mode: 'copy'
+
+  when:
+  !params.skip_tads && params.tads_caller ==~ 'insulation'
+
+  input:
+  set val(sample), val(res), file(cool), val(r) from chIS
+
+  output:
+  file("*.{bed,bedgraph,gff}") into insulation_tads
+
+  script:
+  """
+  cooltools diamond-insulation --help
+  """
+}
 
 
 /****************************************************
@@ -1084,7 +1131,7 @@ process multiqc {
 
    input:
    file multiqc_config from ch_multiqc_config
-   file ('input_*/*') from all_mstats.concat(all_mergestat).collect()
+   file ('input_*/*') from all_mstats.concat(all_mergestat).collect().ifempty([])
    file ('software_versions/*') from software_versions_yaml
    file workflow_summary from create_workflow_summary(summary)
 
