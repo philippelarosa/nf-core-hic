@@ -212,7 +212,7 @@ else {
 // Chromosome size
 if ( params.chromosome_size ){
    Channel.fromPath( params.chromosome_size , checkIfExists: true)
-         .into {chromosome_size; chromosome_size_cool}
+         .into {chromosome_size; chrsize_cool; chrsize_mcool}
 }
 else if ( params.fasta ){
    Channel.fromPath( params.fasta )
@@ -307,19 +307,19 @@ if (params.restriction_site){
    summary['Min Insert Size']  = ("$params.min_insert_size".isInteger() ? params.min_insert_size : 'None')
    summary['Max Insert Size']  = ("$params.max_insert_size".isInteger() ? params.max_insert_size : 'None')
 }else{
-   summary['DNase Mode']       = params.dnase
-   summary['Min CIS dist']     = ("$params.min_cis_dist".isInteger() ? params.min_cis_dist : 'None')
+   summary['DNase Mode']    = params.dnase
+   summary['Min CIS dist']  = ("$params.min_cis_dist".isInteger() ? params.min_cis_dist : 'None')
 }
 summary['Min MAPQ']         = params.min_mapq
 summary['Keep Dup']         = params.keep_dups
 summary['Keep Multi']       = params.keep_multi
 summary['Maps resolution']  = params.bin_size
 if (!params.skip_compartments)
-   summary['Comparments call'] = (params.res_compartments ?: 'None')
+   summary['Comparments calling'] = (params.res_compartments ?: 'None')
 if (!params.skip_tads)
-   summary['TADs call']        = (params.res_tads ?: 'None')
+   summary['TADs calling']  = (params.res_tads ?: 'None')
 if (!params.skip_distdecay)
-   summary['Distance Decay']   = (params.res_dist_decay ?: 'None')
+   summary['Distance Decay']= (params.res_dist_decay ?: 'None')
 summary['Max Memory']       = params.max_memory
 summary['Max CPUs']         = params.max_cpus
 summary['Max Time']         = params.max_time
@@ -455,7 +455,7 @@ if(!params.chromosome_size && params.fasta){
         file fasta from fasta_for_chromsize
 
         output:
-        file "*.size" into chromosome_size, chromosome_size_cool
+        file "*.size" into chromosome_size, chrsize_cool, chrsize_mcool
 
         script:
         """
@@ -694,7 +694,7 @@ if (!params.dnase){
    process get_valid_interaction{
       tag "$sample"
       label 'process_low'
-      publishDir "${params.outdir}/hic_results/data", mode: 'copy',
+      publishDir "${params.outdir}/valid_pairs", mode: 'copy',
    	      saveAs: {filename -> filename.indexOf("*stat") > 0 ? "stats/$filename" : "$filename"}
 
       input:
@@ -702,12 +702,11 @@ if (!params.dnase){
       file frag_file from res_frag_file.collect()
 
       output:
-      set val(sample), file("*.validPairs") into valid_pairs
-      set val(sample), file("*.validPairs") into valid_pairs_4cool
-      set val(sample), file("*.DEPairs") into de_pairs
-      set val(sample), file("*.SCPairs") into sc_pairs
-      set val(sample), file("*.REPairs") into re_pairs
-      set val(sample), file("*.FiltPairs") into filt_pairs
+      set val(sample), file("*.validPairs") into valid_pairs, valid_pairs_4cool
+      //set val(sample), file("*.DEPairs") into de_pairs
+      //set val(sample), file("*.SCPairs") into sc_pairs
+      //set val(sample), file("*.REPairs") into re_pairs
+      //set val(sample), file("*.FiltPairs") into filt_pairs
       set val(sample), file("*RSstat") into all_rsstat
 
       script:
@@ -733,15 +732,14 @@ else{
    process get_valid_interaction_dnase{
       tag "$sample"
       label 'process_low'
-      publishDir "${params.outdir}/hic_results/data", mode: 'copy',
+      publishDir "${params.outdir}/valid_pairs", mode: 'copy',
    	      saveAs: {filename -> filename.indexOf("*stat") > 0 ? "stats/$filename" : "$filename"}
 
       input:
       set val(sample), file(pe_bam) from paired_bam
 
       output:
-      set val(sample), file("*.validPairs") into valid_pairs
-      set val(sample), file("*.validPairs") into valid_pairs_4cool
+      set val(sample), file("*.validPairs") into valid_pairs, valid_pairs_4cool
       set val(sample), file("*RSstat") into all_rsstat
 
       script:
@@ -759,23 +757,17 @@ else{
    }
 }
 
-
-/*
- * Build contact maps
-*/
-
 process merge_validpairs {
    tag "$sample"
    label 'process_highmem'
-   publishDir "${params.outdir}/hic_results/data", mode: 'copy',
+   publishDir "${params.outdir}/valid_pairs", mode: 'copy',
    	      saveAs: {filename -> filename.indexOf("*stat") > 0 ? "stats/$sample/$filename" : "$filename"}
 
    input:
    set val(sample), file(vpairs) from valid_pairs.groupTuple()
 
    output:
-   set val(sample), file("*.allValidPairs") into all_valid_pairs
-   set val(sample), file("*.allValidPairs") into all_valid_pairs_4cool
+   set val(sample), file("*.allValidPairs") into all_valid_pairs, all_valid_pairs_4cool
    file("stats/") into all_mergestat
 
    script:
@@ -814,7 +806,7 @@ process merge_validpairs {
 process merge_sample {
    tag "$ext"
    label 'process_low'
-   publishDir "${params.outdir}/hic_results/stats/${sample}", mode: 'copy'
+   publishDir "${params.outdir}/valid_pairs/stats/${sample}", mode: 'copy'
 
    input:
    set val(prefix), file(fstat) from all_mapstat.groupTuple().concat(all_pairstat.groupTuple(), all_rsstat.groupTuple())
@@ -833,10 +825,15 @@ process merge_sample {
   """
 }
 
+
+/**************************************
+ * Output matrix files
+ */
+
 process build_contact_maps{
    tag "$sample - $mres"
    label 'process_highmem'
-   publishDir "${params.outdir}/hic_results/matrix/raw", mode: 'copy'
+   publishDir "${params.outdir}/contact_maps/hicpro", mode: 'copy'
 
    when:
    !params.skip_maps
@@ -846,7 +843,7 @@ process build_contact_maps{
    file chrsize from chromosome_size.collect()
 
    output:
-   set val(sample), val(mres), file("*.matrix"), file("*.bed") into raw_maps
+   set val(sample), val(mres), file("*.matrix"), file("*.bed") into raw_maps, raw_maps_4cool
  
    script:
    """
@@ -858,10 +855,10 @@ process build_contact_maps{
  * Normalize contact maps
 */
 
-process ice{
+process build_iced_maps{
    tag "$rmaps"
    label 'process_highmem'
-   publishDir "${params.outdir}/hic_results/matrix/iced", mode: 'copy'
+   publishDir "${params.outdir}/contact_maps/hicpro", mode: 'copy'
 
    when:
    !params.skip_maps && !params.skip_ice
@@ -883,33 +880,61 @@ process ice{
    """
 }
 
-/****************************************************
- * FORMAT CONVERTION
- */
-  
 /*
  * Create cool file
  */
+ 
 process convert_to_mcool {
    tag "$sample"
    label 'process_medium'
-   publishDir "${params.outdir}/export/cool", mode: 'copy'
+   publishDir "${params.outdir}/contact_maps/cool", mode: 'copy'
 
    when:
    !params.skip_cool
 
    input:
    set val(sample), file(vpairs) from all_valid_pairs_4cool
-   file chrsize from chromosome_size_cool.collect()
+   file chrsize from chrsize_mcool.collect()
 
    output:
-   file("*cool") into cool_maps
+   file("*mcool") into mcool_maps
 
    script:
    """
-   hicpro2higlass.sh -p ${task.cpus} -i $vpairs -r 5000 -c ${chrsize} -n
+   awk '{OFS="\t";print \$2,\$3,\$4,\$5,\$6,\$7,1}' $vpairs | sed -e 's/+/1/g' -e 's/-/16/g' > contacts.txt
+   cooler csort --nproc ${task.cpus} -c1 1 -p1 2 -s1 3 -c2 4 -p2 5 -s2 6 \
+	  -o contacts.sorted.txt.gz  \
+	  contacts.txt \
+	  ${chrsize}
+    
+   cooler makebins ${chrsize} 5000 > bins.bed
+   cooler cload pairix --nproc ${task.cpus} bins.bed contacts.sorted.txt.gz ${sample}.cool
+   cooler zoomify --nproc ${task.cpus} --balance ${sample}.cool
    """
 }
+
+process convert_to_cool {
+   tag "$sample"
+   label 'process_medium'
+   publishDir "${params.outdir}/contact_maps/cool", mode: 'copy'
+
+   when:
+   !params.skip_cool
+
+   input:
+   set val(sample), val(res), file(mat), file(bed) from raw_maps_4cool
+   file chrsize from chrsize_cool.collect()
+
+   output:
+   set val(res), file("*cool") into cool_maps
+
+   script:
+   """
+   cooler load -f coo --one-based ${bed} ${mat} ${sample}_${res}.cool
+   cooler balance ${sample}_${res}.cool -p ${task.cpus}
+   """
+}
+
 
 /*
  * Create h5 file
@@ -918,7 +943,7 @@ process convert_to_mcool {
 process convert_to_h5 {
   tag "$sample"
   label 'process_medium'
-  publishDir "${params.outdir}/export/h5", mode: 'copy'
+  publishDir "${params.outdir}/contact_maps/h5", mode: 'copy'
 
   input:
   set val(sample), val(res), file(maps), file(bed) from iced_maps
@@ -999,7 +1024,6 @@ process compartment_calling {
   call_compartments.r --matrix ${mat} --bed ${bed}
   """
 }
-
 
 
 /*
