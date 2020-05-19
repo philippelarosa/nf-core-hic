@@ -286,22 +286,17 @@ map_res.concat(comp_bin, tads_bin, ddecay_bin)
   .unique()
   .set { map_res }
 
-// Stage config files
-ch_multiqc_config = Channel.fromPath(params.multiqc_config)
-ch_output_docs = Channel.fromPath("$baseDir/docs/output.md")
-
-
 /*********************************************************
  * SET UP EMPTY CHANNEL FOR STEPWISE USAGE
  */
 
 if (params.bams || params.valid_pairs){
-   bwt2_index_end2end = Channel.create()
-   bwt2_index_trim = Channel.create()
+   bwt2_index_end2end = Channel.empty()
+   bwt2_index_trim = Channel.empty()
 }
 
 if (params.valid_pairs){
-  res_frag_file = Channel.create()
+  res_frag_file = Channel.empty()
 }
 
 /**********************************************************
