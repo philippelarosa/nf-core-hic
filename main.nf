@@ -29,7 +29,7 @@ def helpMessage() {
 
     Input data:                                 If you want to start the pipeline from processed data
       --bams [file]                             Path to bowtie2 aligned paired-end BAM files
-      --valid_pairs [file]                      Path to list of valid pairs in text format
+      --valid_pairs [file]                      Path to list of valid pairs in text format (HiC-Pro)
 
     References                                  If not specified in the configuration file or you wish to overwrite any of the references
       --bwt2_index [file]                       Path to Bowtie2 index
@@ -71,7 +71,7 @@ def helpMessage() {
     Downstream analysis
       --res_dist_decay [str]                    Hi-C resolution(s) to run distance decay analysis (comma separated). Default: 250000
       --res_compartments [str]                  Hi-C resolutions(s) to run comparments calling (comma separated). Default: 250000
-      --tads_caller [str]                       Specifies the method(s) (comma separated) to use in order to call TADs. (available are: 'hicexplorer', 'insulation')
+      --tads_caller [str]                       Specifies the method(s) (comma separated) to use in order to call TADs. (available are: 'hicexplorer', 'insulation'). Default: 'insulation'
       --res_tads [str]                          Hi-C resolutions(s) to run TADs calling (comma separated). Default: 40000
 
     Workflow
@@ -1011,7 +1011,7 @@ process dist_decay {
   publishDir "${params.outdir}/hic_results/dist", mode: 'copy'
 
   when:
-  !params.skip_decay
+  !params.skip_dist_decay
 
   input:
   set val(sample), val(res), file(h5mat) from chddecay
