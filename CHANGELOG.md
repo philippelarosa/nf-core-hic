@@ -3,6 +3,24 @@
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## v1.3.0dev -
+
+### `Added`
+
+* New TADs calling process (`--res_tads` and `--skip_tads`)
+* New compartments calling process (`--res_compartments` and `--skip_compartments`)
+* New distance decay process (`--res_dist_decay` and `--skip_dist_decay`)
+* New `--digestion` parameter to automatically set enzymes options
+* New `--keep_multi` and `keep_dup` options. Default: false
+
+### `Fixed`
+
+* `min_mapq` is ignored if `--keep_multi` is used
+
+### Deprecated
+
+* `--rm_dup` and `rm_multi` are replaced by `--keep_dup` and `--keep_multi`
+
 ## v1.2.0dev - 2020-05-12
 
 ### `Added`

@@ -75,7 +75,7 @@ def helpMessage() {
       --skip_ice [bool]                         Skip ICE normalization. Default: False
       --skip_cool [bool]                        Skip generation of cool files. Default: False
       --skip_multiqc [bool]                     Skip MultiQC. Default: False
-      --skip_distdecay [bool]                   Skip counts vs distance quality control. Default: false
+      --skip_dist_decay [bool]                   Skip counts vs distance quality control. Default: false
       --skip_compartments [bool]                Skip chromosome compartments calling. Default: false
       --skip_tads [bool]                        Skip TADs calling. Default: false
 
@@ -272,7 +272,7 @@ if (params.res_dist_decay){
 }else{
   ddecay_res = Channel.create()
   ddecay_bin = Channel.create()
-  if (!params.skip_distdecay){
+  if (!params.skip_dist_decay){
     log.warn "[nf-core/hic] Hi-C resolution for distance decay not specified. See --res_dist_decay" 
   }
 }
@@ -318,7 +318,7 @@ if (!params.skip_compartments)
    summary['Comparments calling'] = (params.res_compartments ?: 'None')
 if (!params.skip_tads)
    summary['TADs calling']  = (params.res_tads ?: 'None')
-if (!params.skip_distdecay)
+if (!params.skip_dist_decay)
    summary['Distance Decay']= (params.res_dist_decay ?: 'None')
 summary['Max Memory']       = params.max_memory
 summary['Max CPUs']         = params.max_cpus
