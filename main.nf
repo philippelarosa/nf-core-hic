@@ -857,7 +857,7 @@ if (params.valid_pairs){
      .into{ ch_vpairs; ch_vpairs_4cool }       
 }else{
    ch_vpairs = all_valid_pairs
-   ch_vpairs_4cool = all_valid_pairs
+   ch_vpairs_4cool = all_valid_pairs_4cool
 }
 
 
