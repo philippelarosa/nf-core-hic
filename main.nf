@@ -299,6 +299,7 @@ if (params.valid_pairs){
   res_frag_file = Channel.empty()
 }
 
+
 /**********************************************************
  * SET UP LOGS
  */
